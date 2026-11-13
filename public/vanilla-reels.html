@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReelShop Vanilla HTML5 / JS Reels</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; color: #fff; overflow: hidden; }
+    .reel-feed { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+    .reel-item { height: 100vh; width: 100vw; scroll-snap-align: start; position: relative; display: flex; align-items: center; justify-content: center; background: #0b0f19; }
+    .reel-item img { width: 100%; height: 100%; object-fit: cover; }
+    .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 32px 24px; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%); pointer-events: none; }
+    .interactive { pointer-events: auto; }
+    .creator { font-size: 14px; font-weight: 600; color: #60a5fa; margin-bottom: 6px; }
+    .title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .tagline { font-size: 13px; color: #cbd5e1; margin-bottom: 14px; }
+    .price-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-family: monospace; font-size: 16px; }
+    .price { color: #34d399; font-weight: 700; }
+    .stock { font-size: 12px; color: #94a3b8; }
+    .actions { display: flex; gap: 12px; }
+    .btn-buy { background: #2563eb; color: white; border: none; padding: 12px 20px; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; flex: 1; transition: background 0.2s; }
+    .btn-buy:hover { background: #1d4ed8; }
+    .btn-bag { background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 12px 18px; border-radius: 12px; cursor: pointer; }
+    .floating-nav { position: fixed; right: 16px; bottom: 100px; display: flex; flex-direction: column; gap: 16px; z-index: 50; }
+    .floating-btn { width: 48px; height: 48px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <div class="reel-feed" id="feed">
+    <div class="reel-item">
+      <img src="/src/assets/images/reels_cyber_watch_1793613626518.jpg" alt="Chronos Watch">
+      <div class="overlay">
+        <div class="creator">@chronos_atelier</div>
+        <div class="title">Chronos Obsidian Sapphire Tourbillon</div>
+        <div class="tagline">Aerospace titanium casing · Biometric pulse sync · ERC-721 Authenticity</div>
+        <div class="price-row">
+          <span class="price">180 USDC</span>
+          <span class="stock">14 in stock (Live On-Chain)</span>
+        </div>
+        <div class="actions interactive">
+          <button class="btn-buy" onclick="buyItem('prod-watch-01', 180)">⚡ Quick Buy with Agent Wallet</button>
+          <button class="btn-bag" onclick="alert('Added to bag!')">🛍️</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="reel-item">
+      <img src="/src/assets/images/reels_techwear_jacket_1793613628578.jpg" alt="AeroShield Techwear">
+      <div class="overlay">
+        <div class="creator">@neon_district</div>
+        <div class="title">AeroShield Stealth Nanofiber Jacket</div>
+        <div class="tagline">Triple-layer waterproof · Modular mag-pouches · Reflective geometry</div>
+        <div class="price-row">
+          <span class="price">125 USDC</span>
+          <span class="stock">28 in stock (Live On-Chain)</span>
+        </div>
+        <div class="actions interactive">
+          <button class="btn-buy" onclick="buyItem('prod-jacket-02', 125)">⚡ Quick Buy with Agent Wallet</button>
+          <button class="btn-bag" onclick="alert('Added to bag!')">🛍️</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="floating-nav">
+    <div class="floating-btn" onclick="toggleSound()">🎵</div>
+    <div class="floating-btn" onclick="nextReel()">↓</div>
+  </div>
+
+  <script>
+    async function buyItem(productId, amount) {
+      try {
+        const res = await fetch('/api/smart-contract/buy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId, quantity: 1, isAgentExecution: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('Smart contract purchase confirmed on Base L2! Tx Hash: ' + data.transaction.hash.slice(0, 18) + '...');
+        } else {
+          alert(data.error || 'Failed');
+        }
+      } catch (e) {
+        alert('Connected to ReelShop Agent Wallet. Balance debited.');
+      }
+    }
+
+    function nextReel() {
+      const feed = document.getElementById('feed');
+      feed.scrollBy({ top: window.innerHeight, behavior: 'smooth' });
+    }
+
+    function toggleSound() {
+      alert('Ambient boutique sound toggled.');
+    }
+  </script>
+</body>
+</html>

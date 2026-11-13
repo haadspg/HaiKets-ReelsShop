@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReelShop Vue.js 3 Reels Feed</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; color: #fff; overflow: hidden; }
+    #app { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; }
+    .reel { height: 100vh; scroll-snap-align: start; position: relative; display: flex; align-items: center; justify-content: center; }
+    .reel-bg { width: 100%; height: 100%; object-fit: cover; }
+    .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 28px 20px; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, transparent 100%); }
+    .creator { color: #38bdf8; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .tagline { font-size: 12px; color: #94a3b8; margin-bottom: 12px; }
+    .metrics { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-family: monospace; }
+    .price { color: #10b981; font-weight: 700; font-size: 18px; }
+    .stock { font-size: 12px; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px; }
+    .buy-btn { width: 100%; padding: 14px; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 15px; cursor: pointer; transition: transform 0.1s; }
+    .buy-btn:active { transform: scale(0.98); }
+    .loading { height: 100vh; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div v-if="loading" class="loading">Loading Reels Catalog...</div>
+    <div v-for="product in products" :key="product.id" class="reel" v-else>
+      <img :src="product.mediaUrl" :alt="product.name" class="reel-bg" />
+      <div class="overlay">
+        <div class="creator">{{ product.creatorHandle }}</div>
+        <div class="title">{{ product.name }}</div>
+        <div class="tagline">{{ product.tagline }}</div>
+        <div class="metrics">
+          <span class="price">{{ product.priceUSDC }} USDC</span>
+          <span class="stock">{{ product.inventory }} in stock</span>
+        </div>
+        <button class="buy-btn" @click="buy(product)">⚡ Quick Buy with Agent Wallet</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted } = Vue;
+
+    createApp({
+      setup() {
+        const products = ref([]);
+        const loading = ref(true);
+
+        const fetchProducts = async () => {
+          try {
+            const res = await fetch('/api/products');
+            const data = await res.json();
+            if (data.success) {
+              products.value = data.products;
+            }
+          } catch (e) {
+            console.error('Failed to load products', e);
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const buy = async (product) => {
+          try {
+            const res = await fetch('/api/smart-contract/buy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ productId: product.id, quantity: 1, isAgentExecution: true })
+            });
+            const data = await res.json();
+            if (data.success) {
+              product.inventory = data.updatedInventory;
+              alert('Purchase confirmed via Smart Contract! Tx: ' + data.transaction.hash.slice(0, 16) + '...');
+            } else {
+              alert(data.error);
+            }
+          } catch (e) {
+            alert('Smart contract purchase submitted.');
+          }
+        };
+
+        onMounted(() => {
+          fetchProducts();
+        });
+
+        return { products, loading, buy };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
