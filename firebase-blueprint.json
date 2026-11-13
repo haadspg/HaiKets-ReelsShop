@@ -1,0 +1,443 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public shopper or merchant profile without PII",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "avatar": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "enclaveAddress": {
+          "type": "string",
+          "minLength": 42,
+          "maxLength": 42,
+          "pattern": "^0x[a-fA-F0-9]{40}$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["ADMIN", "SHOPPER"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "name", "enclaveAddress", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document for authenticated user email and auth metadata",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "authProvider": {
+          "type": "string",
+          "enum": ["PRIVY_TURNKEY_ENCLAVE", "OAUTH2_GOOGLE", "DEMO"]
+        },
+        "connectedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "authProvider", "connectedAt"]
+    },
+    "AgentWalletDoc": {
+      "title": "AgentWalletDoc",
+      "description": "Embedded multi-chain USDq smart account state owned by a user",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "address": {
+          "type": "string",
+          "minLength": 42,
+          "maxLength": 42,
+          "pattern": "^0x[a-fA-F0-9]{40}$"
+        },
+        "network": {
+          "type": "string",
+          "enum": ["base", "optimism", "polygon"]
+        },
+        "chainId": {
+          "type": "integer"
+        },
+        "usdqBase": {
+          "type": "number"
+        },
+        "usdqOptimism": {
+          "type": "number"
+        },
+        "usdqPolygon": {
+          "type": "number"
+        },
+        "totalUSDqBalance": {
+          "type": "number"
+        },
+        "shopTokenBalance": {
+          "type": "number"
+        },
+        "gasSavedUSD": {
+          "type": "number"
+        },
+        "isSessionKeyActive": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "address",
+        "network",
+        "chainId",
+        "usdqBase",
+        "usdqOptimism",
+        "usdqPolygon",
+        "totalUSDqBalance",
+        "shopTokenBalance",
+        "gasSavedUSD",
+        "isSessionKeyActive",
+        "updatedAt"
+      ]
+    },
+    "ProductDoc": {
+      "title": "ProductDoc",
+      "description": "Shop reel product record with on-chain token metadata and inventory count",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "tagline": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "priceUSDq": {
+          "type": "number"
+        },
+        "priceETH": {
+          "type": "number"
+        },
+        "priceUSD": {
+          "type": "number"
+        },
+        "inventory": {
+          "type": "integer"
+        },
+        "initialStock": {
+          "type": "integer"
+        },
+        "mediaUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "creatorHandle": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "creatorName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "creatorAvatar": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "likesCount": {
+          "type": "integer"
+        },
+        "contractAddress": {
+          "type": "string",
+          "maxLength": 42
+        },
+        "tokenId": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "tags": {
+          "type": "array"
+        },
+        "reviewsCount": {
+          "type": "integer"
+        },
+        "rating": {
+          "type": "number"
+        },
+        "supportedChains": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "name",
+        "category",
+        "priceUSDq",
+        "inventory",
+        "mediaUrl",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ReviewDoc": {
+      "title": "ReviewDoc",
+      "description": "Verified buyer review under a product",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "productId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "avatar": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "rating": {
+          "type": "integer"
+        },
+        "verifiedBuyer": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "productId", "authorUid", "author", "comment", "rating", "verifiedBuyer", "createdAt"]
+    },
+    "TransactionDoc": {
+      "title": "TransactionDoc",
+      "description": "On-chain USDq purchase, CCIP bridge, or faucet transaction record",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 128
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "PURCHASE",
+            "ALLOWANCE_APPROVAL",
+            "FAUCET",
+            "INVENTORY_SYNC",
+            "CCIP_CROSS_CHAIN",
+            "SESSION_KEY_RENEW"
+          ]
+        },
+        "productId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "productTitle": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "tokenAmount": {
+          "type": "number"
+        },
+        "tokenSymbol": {
+          "type": "string",
+          "enum": ["USDq", "ETH", "SHOP", "POL"]
+        },
+        "sourceChain": {
+          "type": "string",
+          "enum": ["base", "optimism", "polygon"]
+        },
+        "destinationChain": {
+          "type": "string",
+          "enum": ["base", "optimism", "polygon"]
+        },
+        "ccipMessageId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": ["CONFIRMED", "PENDING", "REVERTED"]
+        },
+        "blockNumber": {
+          "type": "integer"
+        },
+        "gasSponsored": {
+          "type": "boolean"
+        },
+        "executor": {
+          "type": "string",
+          "enum": ["USER", "AUTONOMOUS_AGENT"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "hash",
+        "type",
+        "tokenAmount",
+        "tokenSymbol",
+        "status",
+        "blockNumber",
+        "gasSponsored",
+        "executor",
+        "createdAt"
+      ]
+    },
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Trusted admin role membership document",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Public user profile document without PII"
+    },
+    "/users/{userId}/private/info": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII document containing user email and auth metadata"
+    },
+    "/wallets/{userId}": {
+      "schema": { "$ref": "#/entities/AgentWalletDoc" },
+      "description": "User-owned multi-chain USDq embedded agent wallet state"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/ProductDoc" },
+      "description": "Shop product catalog and real-time inventory records"
+    },
+    "/products/{productId}/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/ReviewDoc" },
+      "description": "Verified buyer product reviews"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/TransactionDoc" },
+      "description": "User-owned on-chain USDq purchase and CCIP transaction ledger"
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Server/bootstrapped admin RBAC registry"
+    }
+  }
+}

@@ -1,7 +1,9 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import SftpClient from 'ssh2-sftp-client';
 import {
   INITIAL_PRODUCTS,
   INITIAL_WALLET,
@@ -607,10 +609,93 @@ app.post('/api/smart-contract/buy', (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Interactive Export Templates (PHP, Vue, Vanilla)
+// Interactive Export Templates (PHP, Vue, Vanilla) & Namecheap SFTP Deploy
 // -------------------------------------------------------------
 app.get('/api/export/php', (req, res) => {
   res.type('text/plain').send(PHP_BACKEND_CODE);
+});
+
+app.get('/api/deploy/namecheap/status', (req, res) => {
+  const host = process.env.NAMECHEAP_HOST || '';
+  const port = Number(process.env.NAMECHEAP_PORT || 21098);
+  const username = process.env.NAMECHEAP_USER || '';
+  const hasAuth = Boolean(process.env.NAMECHEAP_PASSWORD || process.env.NAMECHEAP_SSH_KEY);
+  const remoteDir = process.env.NAMECHEAP_REMOTE_DIR || (username ? `/home/${username}/public_html` : '/public_html');
+  const configured = Boolean(host && username && hasAuth);
+  const hasDist = fs.existsSync(path.resolve(__dirname, 'dist'));
+
+  res.json({
+    success: true,
+    configured,
+    protocol: 'SFTP (SSH2)',
+    host: host || null,
+    port,
+    remoteDir,
+    hasDist,
+  });
+});
+
+app.post('/api/deploy/namecheap', async (req, res) => {
+  const host = process.env.NAMECHEAP_HOST;
+  const port = Number(process.env.NAMECHEAP_PORT || 21098);
+  const username = process.env.NAMECHEAP_USER;
+  const password = process.env.NAMECHEAP_PASSWORD;
+  const privateKeyEnv = process.env.NAMECHEAP_SSH_KEY;
+  const remoteDir = process.env.NAMECHEAP_REMOTE_DIR || (username ? `/home/${username}/public_html` : '');
+
+  if (!host || !username || (!password && !privateKeyEnv)) {
+    return res.status(400).json({
+      success: false,
+      error:
+        'Namecheap SFTP credentials are not configured in server secrets (NAMECHEAP_HOST, NAMECHEAP_USER, and NAMECHEAP_PASSWORD or NAMECHEAP_SSH_KEY).',
+    });
+  }
+
+  const distDir = path.resolve(__dirname, 'dist');
+  if (!fs.existsSync(distDir)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Production dist/ directory not found. Run `npm run build` before deploying.',
+    });
+  }
+
+  const sftp = new SftpClient();
+  const connectConfig: Record<string, unknown> = {
+    host,
+    port,
+    username,
+    readyTimeout: 15000,
+  };
+
+  if (privateKeyEnv) {
+    connectConfig.privateKey = fs.existsSync(privateKeyEnv)
+      ? fs.readFileSync(privateKeyEnv, 'utf8')
+      : privateKeyEnv.replace(/\\n/g, '\n');
+  } else {
+    connectConfig.password = password;
+  }
+
+  try {
+    await sftp.connect(connectConfig);
+    await sftp.uploadDir(distDir, remoteDir);
+
+    const phpApiPath = path.resolve(__dirname, 'api.php');
+    if (fs.existsSync(phpApiPath)) {
+      await sftp.put(phpApiPath, `${remoteDir.replace(/\/$/, '')}/api.php`);
+    }
+
+    res.json({
+      success: true,
+      message: `Deployed production SPA and api.php to ${host}:${port} (${remoteDir}) via SFTP/SSH2.`,
+    });
+  } catch (err: any) {
+    res.status(502).json({
+      success: false,
+      error: err?.message || 'Failed to connect or upload via Namecheap SFTP/SSH2',
+    });
+  } finally {
+    await sftp.end().catch(() => {});
+  }
 });
 
 // -------------------------------------------------------------

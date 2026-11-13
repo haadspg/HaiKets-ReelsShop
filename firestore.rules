@@ -1,0 +1,354 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Global Hardened Primitives
+    // ---------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'truqaman@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() ||
+        (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidEvmAddress(addr) {
+      return addr is string && addr.size() == 42 && addr.matches('^0x[a-fA-F0-9]{40}$');
+    }
+
+    function isValidChain(chain) {
+      return chain in ['base', 'optimism', 'polygon'];
+    }
+
+    // ---------------------------------------------------------
+    // Validation Blueprints
+    // ---------------------------------------------------------
+    function isValidUserPublic(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'enclaveAddress', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'avatar', 'enclaveAddress', 'role', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && (!('avatar' in data) || (data.avatar is string && data.avatar.size() <= 500))
+        && isValidEvmAddress(data.enclaveAddress)
+        && data.role in ['ADMIN', 'SHOPPER']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'authProvider', 'connectedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'authProvider', 'connectedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.authProvider in ['PRIVY_TURNKEY_ENCLAVE', 'OAUTH2_GOOGLE', 'DEMO']
+        && data.connectedAt is timestamp;
+    }
+
+    function isValidWallet(data, userId) {
+      return data.keys().hasAll([
+          'ownerUid', 'address', 'network', 'chainId',
+          'usdqBase', 'usdqOptimism', 'usdqPolygon',
+          'totalUSDqBalance', 'shopTokenBalance', 'gasSavedUSD',
+          'isSessionKeyActive', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'address', 'network', 'chainId',
+          'usdqBase', 'usdqOptimism', 'usdqPolygon',
+          'totalUSDqBalance', 'shopTokenBalance', 'gasSavedUSD',
+          'isSessionKeyActive', 'updatedAt'
+        ])
+        && data.ownerUid is string && data.ownerUid == userId && isValidId(data.ownerUid)
+        && isValidEvmAddress(data.address)
+        && isValidChain(data.network)
+        && data.chainId is int && data.chainId in [8453, 10, 137]
+        && data.usdqBase is number && data.usdqBase >= 0 && data.usdqBase <= 10000000
+        && data.usdqOptimism is number && data.usdqOptimism >= 0 && data.usdqOptimism <= 10000000
+        && data.usdqPolygon is number && data.usdqPolygon >= 0 && data.usdqPolygon <= 10000000
+        && data.totalUSDqBalance is number && data.totalUSDqBalance >= 0 && data.totalUSDqBalance <= 30000000
+        && data.shopTokenBalance is number && data.shopTokenBalance >= 0 && data.shopTokenBalance <= 100000000
+        && data.gasSavedUSD is number && data.gasSavedUSD >= 0 && data.gasSavedUSD <= 1000000
+        && data.isSessionKeyActive is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data, productId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'name', 'category', 'priceUSDq',
+          'inventory', 'mediaUrl', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'name', 'tagline', 'description', 'category',
+          'priceUSDq', 'priceETH', 'priceUSD', 'inventory', 'initialStock',
+          'mediaUrl', 'creatorHandle', 'creatorName', 'creatorAvatar',
+          'likesCount', 'contractAddress', 'tokenId', 'tags',
+          'reviewsCount', 'rating', 'supportedChains', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == productId && isValidId(data.id)
+        && data.ownerUid is string && isValidId(data.ownerUid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && (!('tagline' in data) || (data.tagline is string && data.tagline.size() <= 240))
+        && (!('description' in data) || (data.description is string && data.description.size() <= 2000))
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.priceUSDq is number && data.priceUSDq > 0 && data.priceUSDq <= 1000000
+        && (!('priceETH' in data) || (data.priceETH is number && data.priceETH >= 0))
+        && (!('priceUSD' in data) || (data.priceUSD is number && data.priceUSD >= 0))
+        && data.inventory is int && data.inventory >= 0 && data.inventory <= 1000000
+        && (!('initialStock' in data) || (data.initialStock is int && data.initialStock >= 0))
+        && data.mediaUrl is string && data.mediaUrl.size() >= 1 && data.mediaUrl.size() <= 500
+        && (!('creatorHandle' in data) || (data.creatorHandle is string && data.creatorHandle.size() <= 80))
+        && (!('creatorName' in data) || (data.creatorName is string && data.creatorName.size() <= 100))
+        && (!('creatorAvatar' in data) || (data.creatorAvatar is string && data.creatorAvatar.size() <= 500))
+        && (!('likesCount' in data) || (data.likesCount is int && data.likesCount >= 0))
+        && (!('contractAddress' in data) || (data.contractAddress is string && data.contractAddress.size() <= 42))
+        && (!('tokenId' in data) || (data.tokenId is string && data.tokenId.size() <= 32))
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 10 && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 40))))
+        && (!('reviewsCount' in data) || (data.reviewsCount is int && data.reviewsCount >= 0))
+        && (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5))
+        && (!('supportedChains' in data) || (data.supportedChains is list && data.supportedChains.size() <= 5 && (data.supportedChains.size() == 0 || (data.supportedChains[0] is string && isValidChain(data.supportedChains[0])))))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReview(data, productId, reviewId) {
+      return data.keys().hasAll([
+          'id', 'productId', 'authorUid', 'author', 'comment',
+          'rating', 'verifiedBuyer', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'productId', 'authorUid', 'author', 'avatar', 'comment',
+          'rating', 'verifiedBuyer', 'createdAt'
+        ])
+        && data.id is string && data.id == reviewId && isValidId(data.id)
+        && data.productId is string && data.productId == productId && isValidId(data.productId)
+        && data.authorUid is string && data.authorUid == request.auth.uid && isValidId(data.authorUid)
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 100
+        && (!('avatar' in data) || (data.avatar is string && data.avatar.size() <= 500))
+        && data.comment is string && data.comment.size() >= 1 && data.comment.size() <= 1000
+        && data.rating is int && data.rating >= 1 && data.rating <= 5
+        && data.verifiedBuyer is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidTransaction(data, txId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'hash', 'type', 'tokenAmount',
+          'tokenSymbol', 'status', 'blockNumber', 'gasSponsored',
+          'executor', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'hash', 'type', 'productId', 'productTitle',
+          'tokenAmount', 'tokenSymbol', 'sourceChain', 'destinationChain',
+          'ccipMessageId', 'status', 'blockNumber', 'gasSponsored',
+          'executor', 'createdAt'
+        ])
+        && data.id is string && data.id == txId && isValidId(data.id)
+        && data.ownerUid is string && isValidId(data.ownerUid)
+        && data.hash is string && data.hash.size() >= 10 && data.hash.size() <= 128
+        && data.type in [
+          'PURCHASE', 'ALLOWANCE_APPROVAL', 'FAUCET',
+          'INVENTORY_SYNC', 'CCIP_CROSS_CHAIN', 'SESSION_KEY_RENEW'
+        ]
+        && (!('productId' in data) || (data.productId is string && data.productId.size() <= 128))
+        && (!('productTitle' in data) || (data.productTitle is string && data.productTitle.size() <= 160))
+        && data.tokenAmount is number && data.tokenAmount >= 0 && data.tokenAmount <= 10000000
+        && data.tokenSymbol in ['USDq', 'ETH', 'SHOP', 'POL']
+        && (!('sourceChain' in data) || isValidChain(data.sourceChain))
+        && (!('destinationChain' in data) || isValidChain(data.destinationChain))
+        && (!('ccipMessageId' in data) || (data.ccipMessageId is string && data.ccipMessageId.size() <= 128))
+        && data.status in ['CONFIRMED', 'PENDING', 'REVERTED']
+        && data.blockNumber is int && data.blockNumber >= 0
+        && data.gasSponsored is bool
+        && data.executor in ['USER', 'AUTONOMOUS_AGENT']
+        && data.createdAt is timestamp;
+    }
+
+    // ---------------------------------------------------------
+    // Collection Rules
+    // ---------------------------------------------------------
+
+    // Bootstrapped Admin Registry
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create, update, delete: if isValidId(userId) && isBootstrappedAdmin();
+    }
+
+    // Users (Split Collection: Public Profile + Private PII)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPublic(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (incoming().role == 'SHOPPER' || isAdmin());
+      allow update: if isValidId(userId)
+        && isValidUserPublic(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'enclaveAddress', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // Isolated PII subcollection
+      match /private/{docId} {
+        allow get: if isValidId(userId) && docId == 'info' && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(userId)
+          && docId == 'info'
+          && isOwner(userId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().connectedAt == request.time;
+        allow update: if isValidId(userId)
+          && docId == 'info'
+          && (isOwner(userId) || isAdmin())
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'authProvider', 'connectedAt']);
+        allow delete: if isValidId(userId) && isAdmin();
+      }
+    }
+
+    // Embedded Agent Wallets
+    match /wallets/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidWallet(incoming(), userId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && (isOwner(userId) || isAdmin())
+        && isValidWallet(incoming(), userId)
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'network', 'chainId', 'usdqBase', 'usdqOptimism', 'usdqPolygon',
+          'totalUSDqBalance', 'shopTokenBalance', 'gasSavedUSD',
+          'isSessionKeyActive', 'updatedAt'
+        ]);
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // Products Catalog & Real-Time Inventory
+    match /products/{productId} {
+      allow get: if isValidId(productId);
+      allow list: if true;
+      allow create: if isValidId(productId)
+        && isAdmin()
+        && isValidProduct(incoming(), productId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(productId)
+        && isVerifiedUser()
+        && isValidProduct(incoming(), productId)
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          // Action: Shopper decrementing stock on purchase
+          (incoming().diff(existing()).affectedKeys().hasOnly(['inventory', 'updatedAt'])
+            && incoming().inventory <= existing().inventory) ||
+          // Action: Shopper liking product
+          (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'updatedAt'])) ||
+          // Action: Shopper adding review
+          (incoming().diff(existing()).affectedKeys().hasOnly(['reviewsCount', 'updatedAt'])
+            && incoming().reviewsCount == existing().reviewsCount + 1)
+        );
+      allow delete: if isValidId(productId) && isAdmin();
+
+      // Verified Buyer Reviews Subcollection
+      match /reviews/{reviewId} {
+        allow get: if isValidId(productId) && isValidId(reviewId);
+        allow list: if isValidId(productId);
+        allow create: if isValidId(productId)
+          && isValidId(reviewId)
+          && isVerifiedUser()
+          && isValidReview(incoming(), productId, reviewId)
+          && exists(/databases/$(database)/documents/products/$(productId))
+          && incoming().createdAt == request.time;
+        allow update: if isValidId(productId)
+          && isValidId(reviewId)
+          && isValidReview(incoming(), productId, reviewId)
+          && incoming().authorUid == existing().authorUid
+          && incoming().productId == existing().productId
+          && incoming().createdAt == existing().createdAt
+          && (
+            isAdmin() ||
+            (isOwner(existing().authorUid) && incoming().diff(existing()).affectedKeys().hasOnly(['comment', 'rating']))
+          );
+        allow delete: if isValidId(productId)
+          && isValidId(reviewId)
+          && (isAdmin() || isOwner(existing().authorUid));
+      }
+    }
+
+    // User On-Chain & Purchase Transactions
+    match /transactions/{transactionId} {
+      allow get: if isValidId(transactionId)
+        && (isAdmin() || (isVerifiedUser() && existing().ownerUid == request.auth.uid));
+      allow list: if isVerifiedUser() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isValidId(transactionId)
+        && isVerifiedUser()
+        && isValidTransaction(incoming(), transactionId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(transactionId)
+        && isValidTransaction(incoming(), transactionId)
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin() ||
+          (
+            isOwner(existing().ownerUid)
+            && existing().status == 'PENDING'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'blockNumber', 'ccipMessageId'])
+          )
+        );
+      allow delete: if isValidId(transactionId) && isAdmin();
+    }
+  }
+}

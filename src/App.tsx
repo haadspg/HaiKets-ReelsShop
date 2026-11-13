@@ -1,4 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import { auth, googleAuthProvider } from './lib/firebase.ts';
+import {
+  syncFirebaseUserAndWallet,
+  subscribeToFirestoreProducts,
+  subscribeToUserWallet,
+  subscribeToUserTransactions,
+  persistWalletState,
+  persistTransaction,
+  persistProductCreate,
+  persistProductUpdate,
+  persistProductDelete,
+  persistProductInventory,
+} from './lib/firestoreStore.ts';
 import { Navbar } from './components/Navbar.tsx';
 import { ReelsFeed } from './components/ReelsFeed.tsx';
 import { ProductCard } from './components/ProductCard.tsx';
@@ -54,6 +68,7 @@ export default function App() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [cartPopKey, setCartPopKey] = useState(0);
   const [lowStockThreshold, setLowStockThreshold] = useState<number>(10);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [toast, setToast] = useState<{ title: string; subtitle?: string; type?: 'success' | 'info' | 'error' } | null>(null);
 
   // Catalog search & category filter
@@ -87,6 +102,55 @@ export default function App() {
     safeFetchJson('/api/electricsql/shapes').then((data) => data?.success && setElectricShapes(data.shapes));
     safeFetchJson('/api/oracle/feeds').then((data) => data?.success && setOracleFeeds(data.feeds));
     safeFetchJson('/api/ccip/messages').then((data) => data?.success && setCcipMessages(data.messages));
+  }, []);
+
+  // Firebase Auth & Firestore Real-Time Sync
+  useEffect(() => {
+    let unsubWallet: (() => void) | undefined;
+    let unsubTx: (() => void) | undefined;
+    let unsubProducts: (() => void) | undefined;
+
+    try {
+      unsubProducts = subscribeToFirestoreProducts((fsProducts) => {
+        if (fsProducts.length > 0) {
+          setProducts(fsProducts);
+        }
+      });
+    } catch (err) {
+      console.warn('Firestore products subscription warning:', err);
+    }
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
+      unsubWallet?.();
+      unsubTx?.();
+
+      if (fbUser && fbUser.emailVerified) {
+        try {
+          const synced = await syncFirebaseUserAndWallet(fbUser, INITIAL_WALLET);
+          setUser(synced.user);
+          setWallet(synced.wallet);
+
+          unsubWallet = subscribeToUserWallet(fbUser.uid, synced.wallet, (w) => {
+            setWallet(w);
+          });
+          unsubTx = subscribeToUserTransactions(fbUser.uid, (txs) => {
+            if (txs.length > 0) {
+              setTransactions(txs);
+            }
+          });
+        } catch (err) {
+          console.warn('Firestore user sync warning:', err);
+        }
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      unsubWallet?.();
+      unsubTx?.();
+      unsubProducts?.();
+    };
   }, []);
 
   // Server-Sent Events (SSE) for Real-Time Asset, ElectricSQL & Inventory Updates
@@ -203,6 +267,13 @@ export default function App() {
 
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified) {
+          if (data.wallet) persistWalletState(firebaseUser.uid, data.wallet).catch(console.warn);
+          if (data.transaction) persistTransaction(firebaseUser.uid, data.transaction).catch(console.warn);
+          if (typeof data.updatedInventory === 'number') {
+            persistProductInventory(product.id, data.updatedInventory).catch(console.warn);
+          }
+        }
         soundController.playSuccessChime();
         showToast(
           `1-Tap Buy Confirmed: ${product.name}`,
@@ -254,7 +325,7 @@ export default function App() {
     setIsPurchasing(true);
     try {
       for (const item of cart) {
-        await fetch('/api/smart-contract/buy', {
+        const res = await fetch('/api/smart-contract/buy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -265,6 +336,14 @@ export default function App() {
             isAgentExecution: true,
           }),
         });
+        const data = await res.json();
+        if (data?.success && firebaseUser?.emailVerified) {
+          if (data.wallet) persistWalletState(firebaseUser.uid, data.wallet).catch(console.warn);
+          if (data.transaction) persistTransaction(firebaseUser.uid, data.transaction).catch(console.warn);
+          if (typeof data.updatedInventory === 'number') {
+            persistProductInventory(item.product.id, data.updatedInventory).catch(console.warn);
+          }
+        }
       }
       soundController.playSuccessChime();
       setCart([]);
@@ -315,6 +394,29 @@ export default function App() {
     }
   };
 
+  // Firebase Google Sign-In
+  const handleGoogleSignIn = async () => {
+    try {
+      const cred = await signInWithPopup(auth, googleAuthProvider);
+      if (cred.user) {
+        soundController.playSuccessChime();
+        showToast('Google Account Connected', 'Firebase Authentication & Firestore cloud sync active.');
+      }
+    } catch {
+      showToast('Sign-In Cancelled', 'Could not complete Google authentication', 'error');
+    }
+  };
+
+  const handleFirebaseSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUser(INITIAL_USER);
+      showToast('Signed Out', 'Switched back to local demo enclave session.', 'info');
+    } catch {
+      showToast('Sign-Out Error', 'Failed to sign out cleanly', 'error');
+    }
+  };
+
   // Switch Active Blockchain Network
   const handleSwitchChain = async (network: SupportedChain) => {
     try {
@@ -326,6 +428,9 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setWallet(data.wallet);
+        if (firebaseUser?.emailVerified) {
+          persistWalletState(firebaseUser.uid, data.wallet).catch(console.warn);
+        }
         showToast('Network Switched', `Active settlement chain set to ${network.toUpperCase()}`);
       }
     } catch {
@@ -347,6 +452,9 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified && data.wallet) {
+          persistWalletState(firebaseUser.uid, data.wallet).catch(console.warn);
+        }
         soundController.playSuccessChime();
         showToast(
           'CCIP Route Finalized',
@@ -386,6 +494,9 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified && user.role === 'ADMIN') {
+          persistProductCreate(firebaseUser.uid, data.product).catch(console.warn);
+        }
         showToast('Product Created', `${data.product.name} live on Reels feed.`);
         return true;
       }
@@ -406,6 +517,9 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified && user.role === 'ADMIN') {
+          persistProductUpdate(id, updates).catch(console.warn);
+        }
         showToast('Product Updated', `Saved changes for ${data.product.name}.`);
         return true;
       }
@@ -424,6 +538,9 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified && user.role === 'ADMIN') {
+          persistProductDelete(id).catch(console.warn);
+        }
         showToast('Product Deleted', 'Item removed from catalog and reels.');
         return true;
       }
@@ -444,6 +561,9 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified) {
+          persistProductInventory(id, data.product.inventory).catch(console.warn);
+        }
         showToast(
           'ElectricSQL Inventory Sync',
           `New stock for ${data.product.name}: ${data.product.inventory} units (Shape synced).`
@@ -462,6 +582,10 @@ export default function App() {
       const res = await fetch('/api/wallet/faucet', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
+        if (firebaseUser?.emailVerified) {
+          if (data.wallet) persistWalletState(firebaseUser.uid, data.wallet).catch(console.warn);
+          if (data.transaction) persistTransaction(firebaseUser.uid, data.transaction).catch(console.warn);
+        }
         soundController.playSuccessChime();
         showToast('Faucet Claimed', `+300 USDq funded on ${wallet.network.toUpperCase()}!`);
         return true;
@@ -728,13 +852,16 @@ export default function App() {
         onAddReview={handleAddReview}
       />
 
-      {/* Automated Backroom Enclave Auth Modal (Turnkey / Privy) */}
+      {/* Automated Backroom Enclave Auth Modal (Turnkey / Privy + Firebase Google Auth) */}
       <OAuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         currentUser={user}
         wallet={wallet}
         onAgenticLogin={handleAgenticLogin}
+        onGoogleSignIn={handleGoogleSignIn}
+        onFirebaseSignOut={handleFirebaseSignOut}
+        isFirebaseSignedIn={!!firebaseUser}
         onToggleRole={handleToggleRole}
       />
 

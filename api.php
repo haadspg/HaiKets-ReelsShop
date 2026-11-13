@@ -1,8 +1,8 @@
 <?php
 /**
- * ReelShop PHP CRUD & Web3 Smart Contract Webhook Backend
- * REST API for Administrative Products Management & Real-Time Inventory Tracking
- * Supports OAuth2 Bearer Tokens and EVM Smart Contract Webhooks
+ * HaiKets ReelShop PHP CRUD & Web3 USDq Smart Contract Backend
+ * Ready for Namecheap cPanel / Apache / LiteSpeed Shared & VPS Hosting
+ * Supports multi-chain USDq settlement (Base, OP Mainnet, Polygon) & Chainlink CCIP metadata
  */
 
 header('Content-Type: application/json; charset=UTF-8');
@@ -22,20 +22,24 @@ if (!file_exists($dbFile)) {
             [
                 "id" => "prod-watch-01",
                 "name" => "Chronos Obsidian Sapphire Tourbillon",
-                "priceUSDC" => 180,
+                "priceUSDq" => 180,
+                "priceUSD" => 180,
                 "inventory" => 14,
                 "contractAddress" => "0x71C8F67A8a7bF53a251787c800DaFe34dE6aB781",
                 "category" => "Luxury Wearables",
-                "mediaUrl" => "/src/assets/images/reels_cyber_watch_1793613626518.jpg"
+                "mediaUrl" => "/assets/reels_cyber_watch.jpg",
+                "supportedChains" => ["base", "optimism", "polygon"]
             ],
             [
                 "id" => "prod-jacket-02",
                 "name" => "AeroShield Stealth Nanofiber Jacket",
-                "priceUSDC" => 125,
+                "priceUSDq" => 125,
+                "priceUSD" => 125,
                 "inventory" => 28,
                 "contractAddress" => "0x3A219bCe18683e8b417c490A2b45E01314C923B0",
                 "category" => "Technical Apparel",
-                "mediaUrl" => "/src/assets/images/reels_techwear_jacket_1793613628578.jpg"
+                "mediaUrl" => "/assets/reels_techwear_jacket.jpg",
+                "supportedChains" => ["base", "optimism", "polygon"]
             ]
         ],
         "transactions" => []
@@ -58,9 +62,16 @@ if ($method === 'GET' && strpos($path, '/products') !== false) {
     exit();
 }
 
-// 2. POST /api/products (Admin CRUD Create)
-if ($method === 'POST' && strpos($path, '/products') !== false) {
-    if (empty($body['name']) || !isset($body['priceUSDC']) || !isset($body['inventory'])) {
+// 2. GET /api/transactions
+if ($method === 'GET' && strpos($path, '/transactions') !== false) {
+    echo json_encode(["success" => true, "transactions" => $data['transactions']]);
+    exit();
+}
+
+// 3. POST /api/products (Admin CRUD Create)
+if ($method === 'POST' && preg_match('#/products/?$#', $path)) {
+    $price = $body['priceUSDq'] ?? $body['priceUSDC'] ?? null;
+    if (empty($body['name']) || $price === null || !isset($body['inventory'])) {
         http_response_code(400);
         echo json_encode(["success" => false, "error" => "Missing required product fields"]);
         exit();
@@ -68,24 +79,53 @@ if ($method === 'POST' && strpos($path, '/products') !== false) {
     $newProduct = [
         "id" => "prod-" . bin2hex(random_bytes(4)),
         "name" => $body['name'],
-        "priceUSDC" => floatval($body['priceUSDC']),
+        "priceUSDq" => floatval($price),
+        "priceUSD" => floatval($price),
         "inventory" => intval($body['inventory']),
         "contractAddress" => $body['contractAddress'] ?? "0x71C8F67A8a7bF53a251787c800DaFe34dE6aB781",
         "category" => $body['category'] ?? "General",
-        "mediaUrl" => $body['mediaUrl'] ?? "/src/assets/images/reels_cyber_watch_1793613626518.jpg"
+        "mediaUrl" => $body['mediaUrl'] ?? "/assets/reels_cyber_watch.jpg",
+        "supportedChains" => $body['supportedChains'] ?? ["base", "optimism", "polygon"]
     ];
-    $data['products'][] = $newProduct;
+    array_unshift($data['products'], $newProduct);
     saveDB($data, $dbFile);
     http_response_code(201);
     echo json_encode(["success" => true, "product" => $newProduct]);
     exit();
 }
 
-// 3. POST /api/smart-contract/buy (Web3 Token Purchase & Inventory Decrement)
+// 4. PUT/DELETE /api/products/{id}
+if (preg_match('#/products/([^/]+)$#', $path, $matches)) {
+    $targetId = $matches[1];
+    if ($method === 'PUT') {
+        foreach ($data['products'] as &$prod) {
+            if ($prod['id'] === $targetId) {
+                if (isset($body['name'])) $prod['name'] = $body['name'];
+                if (isset($body['priceUSDq'])) {
+                    $prod['priceUSDq'] = floatval($body['priceUSDq']);
+                    $prod['priceUSD'] = floatval($body['priceUSDq']);
+                }
+                if (isset($body['inventory'])) $prod['inventory'] = max(0, intval($body['inventory']));
+                saveDB($data, $dbFile);
+                echo json_encode(["success" => true, "product" => $prod]);
+                exit();
+            }
+        }
+    } elseif ($method === 'DELETE') {
+        $data['products'] = array_values(array_filter($data['products'], fn($p) => $p['id'] !== $targetId));
+        saveDB($data, $dbFile);
+        echo json_encode(["success" => true, "id" => $targetId]);
+        exit();
+    }
+}
+
+// 5. POST /api/smart-contract/buy (USDq Token Purchase & Inventory Decrement)
 if ($method === 'POST' && strpos($path, '/smart-contract/buy') !== false) {
     $productId = $body['productId'] ?? '';
-    $quantity = intval($body['quantity'] ?? 1);
-    
+    $quantity = max(1, intval($body['quantity'] ?? 1));
+    $sourceChain = $body['sourceChain'] ?? 'base';
+    $settlementChain = $body['settlementChain'] ?? $sourceChain;
+
     foreach ($data['products'] as &$prod) {
         if ($prod['id'] === $productId) {
             if ($prod['inventory'] < $quantity) {
@@ -95,20 +135,31 @@ if ($method === 'POST' && strpos($path, '/smart-contract/buy') !== false) {
             }
             $prod['inventory'] -= $quantity;
             $txHash = "0x" . bin2hex(random_bytes(32));
+            $ccipMsgId = ($sourceChain !== $settlementChain) ? "0xccip_msg_" . bin2hex(random_bytes(16)) : null;
+            $costUSDq = ($prod['priceUSDq'] ?? 0) * $quantity;
             $txRecord = [
+                "id" => "tx-buy-" . bin2hex(random_bytes(4)),
                 "hash" => $txHash,
+                "type" => "PURCHASE",
                 "productId" => $productId,
-                "quantity" => $quantity,
+                "productTitle" => $prod['name'],
+                "tokenAmount" => $costUSDq,
+                "tokenSymbol" => "USDq",
+                "sourceChain" => $sourceChain,
+                "destinationChain" => $settlementChain,
+                "ccipMessageId" => $ccipMsgId,
                 "status" => "CONFIRMED",
-                "timestamp" => date('c')
+                "timestamp" => date('c'),
+                "gasSponsored" => true
             ];
-            $data['transactions'][] = $txRecord;
+            array_unshift($data['transactions'], $txRecord);
             saveDB($data, $dbFile);
             echo json_encode([
                 "success" => true,
-                "transactionHash" => $txHash,
-                "newStock" => $prod['inventory'],
-                "message" => "Smart contract verified and inventory decremented in real-time."
+                "transaction" => $txRecord,
+                "updatedInventory" => $prod['inventory'],
+                "ccipMessageId" => $ccipMsgId,
+                "message" => "Settled in USDq on {$settlementChain}."
             ]);
             exit();
         }
@@ -118,5 +169,5 @@ if ($method === 'POST' && strpos($path, '/smart-contract/buy') !== false) {
     exit();
 }
 
-echo json_encode(["success" => true, "service" => "ReelShop PHP Web3 API", "version" => "1.0.0"]);
+echo json_encode(["success" => true, "service" => "HaiKets USDq PHP Backend", "version" => "2.0.0"]);
 ?>
